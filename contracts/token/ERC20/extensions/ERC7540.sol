@@ -719,7 +719,7 @@ abstract contract ERC7540 is ERC165, ERC20, IERC4626, IERC7540, IERC7575Share {
             _transfer(owner, _redeemShareDestination(), shares);
         }
 
-        emit RedeemRequest(controller, owner, requestId, _msgSender(), shares);
+        emit RedeemRequest(controller, owner, requestId, sender, shares);
         return requestId;
     }
 

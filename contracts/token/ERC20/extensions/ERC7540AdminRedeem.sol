@@ -77,9 +77,10 @@ abstract contract ERC7540AdminRedeem is ERC7540 {
         uint256 pendingShares = pendingRedeemRequest(0, controller);
         require(shares <= pendingShares, ERC7540RedeemInsufficientPendingShares(shares, pendingShares));
 
-        _redeems[controller].pendingShares -= shares;
-        _redeems[controller].claimableShares += shares;
-        _redeems[controller].claimableAssets += assets;
+        PendingRedeem storage request = _redeems[controller];
+        request.pendingShares -= shares;
+        request.claimableShares += shares;
+        request.claimableAssets += assets;
 
         if (_redeemShareDestination() != address(0)) {
             _burnSharesOnRedeemFulfill(assets, shares);
@@ -93,14 +94,15 @@ abstract contract ERC7540AdminRedeem is ERC7540 {
         // When `assets` equals the controller's full claimable balance (including the case where both
         // sides are 0), the entire remaining `claimableShares` is returned and consumed. This drains any
         // residue left after a partial claim was rounded against the share side.
-        uint256 maxAssets = maxWithdraw(controller);
-        uint256 maxShares = maxRedeem(controller);
+        PendingRedeem storage request = _redeems[controller];
+        uint256 maxAssets = request.claimableAssets;
+        uint256 maxShares = request.claimableShares;
         uint256 shares = assets == maxAssets
             ? maxShares
             : Math.mulDiv(assets, maxShares, maxAssets, Math.Rounding.Ceil);
 
-        _redeems[controller].claimableAssets -= assets;
-        _redeems[controller].claimableShares -= shares;
+        request.claimableAssets -= assets;
+        request.claimableShares -= shares;
         return shares;
     }
 
@@ -109,14 +111,15 @@ abstract contract ERC7540AdminRedeem is ERC7540 {
         // When `shares` equals the controller's full claimable balance (including the case where both
         // sides are 0), the entire remaining `claimableAssets` is returned and consumed. This drains any
         // residue left after a partial claim was rounded against the asset side.
-        uint256 maxShares = maxRedeem(controller);
-        uint256 maxAssets = maxWithdraw(controller);
+        PendingRedeem storage request = _redeems[controller];
+        uint256 maxShares = request.claimableShares;
+        uint256 maxAssets = request.claimableAssets;
         uint256 assets = shares == maxShares
             ? maxAssets
             : Math.mulDiv(shares, maxAssets, maxShares, Math.Rounding.Floor);
 
-        _redeems[controller].claimableAssets -= assets;
-        _redeems[controller].claimableShares -= shares;
+        request.claimableAssets -= assets;
+        request.claimableShares -= shares;
         return assets;
     }
 
