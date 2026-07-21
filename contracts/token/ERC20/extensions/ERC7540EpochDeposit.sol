@@ -224,20 +224,22 @@ abstract contract ERC7540EpochDeposit is ERC7540 {
         _checkOperatorOrController(_isDepositAsync(), controller, _msgSender());
         uint256 epochId = currentDepositEpoch();
         if (assets > 0) {
-            _epochs[epochId].totalAssets += assets;
-            _epochs[epochId].requests[controller] += assets;
+            EpochDepositMetadata storage epoch = _epochs[epochId];
+            epoch.totalAssets += assets;
+            epoch.requests[controller] += assets;
 
-            (bool success, bytes32 lastEpochId) = _memberOf[controller].tryBack();
+            DoubleEndedQueue.Bytes32Deque storage queue = _memberOf[controller];
+            (bool success, bytes32 lastEpochId) = queue.tryBack();
             if (!success || lastEpochId != bytes32(epochId)) {
                 // Limit the number of pending epochs per account to avoid O(n) loop in
                 // _asyncMaxDeposit and _asyncMaxMint being a concern. Users that have reached
                 // the limit should claim fulfilled requests to clean up the queue.
                 require(
-                    _memberOf[controller].length() < _depositRequestQueueLimit(),
+                    queue.length() < _depositRequestQueueLimit(),
                     ERC7540EpochDepositQueueLimitExceeded(controller)
                 );
 
-                _memberOf[controller].pushBack(bytes32(epochId));
+                queue.pushBack(bytes32(epochId));
             }
         }
 

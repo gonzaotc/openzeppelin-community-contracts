@@ -224,20 +224,19 @@ abstract contract ERC7540EpochRedeem is ERC7540 {
         _checkOperatorOrController(_isRedeemAsync(), controller, _msgSender());
         uint256 epochId = currentRedeemEpoch();
         if (shares > 0) {
-            _epochs[epochId].totalShares += shares;
-            _epochs[epochId].requests[controller] += shares;
+            EpochRedeemMetadata storage epoch = _epochs[epochId];
+            epoch.totalShares += shares;
+            epoch.requests[controller] += shares;
 
-            (bool success, bytes32 lastEpochId) = _memberOf[controller].tryBack();
+            DoubleEndedQueue.Bytes32Deque storage queue = _memberOf[controller];
+            (bool success, bytes32 lastEpochId) = queue.tryBack();
             if (!success || lastEpochId != bytes32(epochId)) {
                 // Limit the number of pending epochs per account to avoid O(n) loop in
                 // _asyncMaxWithdraw and _asyncMaxRedeem being a concern. Users that have reached
                 // the limit should claim fulfilled requests to clean up the queue.
-                require(
-                    _memberOf[controller].length() < _redeemRequestQueueLimit(),
-                    ERC7540EpochRedeemQueueLimitExceeded(controller)
-                );
+                require(queue.length() < _redeemRequestQueueLimit(), ERC7540EpochRedeemQueueLimitExceeded(controller));
 
-                _memberOf[controller].pushBack(bytes32(epochId));
+                queue.pushBack(bytes32(epochId));
             }
         }
 
