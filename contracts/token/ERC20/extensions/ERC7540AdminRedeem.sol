@@ -77,9 +77,10 @@ abstract contract ERC7540AdminRedeem is ERC7540 {
         uint256 pendingShares = pendingRedeemRequest(0, controller);
         require(shares <= pendingShares, ERC7540RedeemInsufficientPendingShares(shares, pendingShares));
 
-        _redeems[controller].pendingShares -= shares;
-        _redeems[controller].claimableShares += shares;
-        _redeems[controller].claimableAssets += assets;
+        PendingRedeem storage request = _redeems[controller];
+        request.pendingShares -= shares;
+        request.claimableShares += shares;
+        request.claimableAssets += assets;
 
         if (_redeemShareDestination() != address(0)) {
             _burnSharesOnRedeemFulfill(assets, shares);

@@ -82,9 +82,10 @@ abstract contract ERC7540AdminDeposit is ERC7540 {
         uint256 pendingAssets = pendingDepositRequest(0, controller);
         require(assets <= pendingAssets, ERC7540DepositInsufficientPendingAssets(assets, pendingAssets));
 
-        _deposits[controller].pendingAssets -= assets;
-        _deposits[controller].claimableAssets += assets;
-        _deposits[controller].claimableShares += shares;
+        PendingDeposit storage request = _deposits[controller];
+        request.pendingAssets -= assets;
+        request.claimableAssets += assets;
+        request.claimableShares += shares;
 
         if (_depositShareOrigin() != address(0)) {
             _mintSharesOnDepositFulfill(assets, shares);
