@@ -156,22 +156,32 @@ abstract contract ERC7540EpochDeposit is ERC7540 {
      * {_fulfillDeposit} is O(1) (it sets `totalShares` for the entire epoch in a single write).
      */
     function _asyncMaxDeposit(address owner) internal view virtual override returns (uint256 assets) {
+        DoubleEndedQueue.Bytes32Deque storage queue = _memberOf[owner];
         uint256 result = 0;
-        for (uint256 i = 0; i < _memberOf[owner].length(); ++i) {
-            uint256 epochId = uint256(_memberOf[owner].at(i));
+        uint256 length = queue.length();
+        for (uint256 i = 0; i < length; ) {
+            uint256 epochId = uint256(queue.at(i));
             if (totalDepositShares(epochId) == 0) break; // stop at the oldest Pending epoch
             result += _claimableDepositRequest(epochId, owner);
+            unchecked {
+                ++i;
+            }
         }
         return result;
     }
 
     /// @dev Sums claimable shares across all fulfilled epochs the `owner` participates in. Same as {_asyncMaxDeposit}.
     function _asyncMaxMint(address owner) internal view virtual override returns (uint256 shares) {
+        DoubleEndedQueue.Bytes32Deque storage queue = _memberOf[owner];
         uint256 result = 0;
-        for (uint256 i = 0; i < _memberOf[owner].length(); ++i) {
-            uint256 epochId = uint256(_memberOf[owner].at(i));
+        uint256 length = queue.length();
+        for (uint256 i = 0; i < length; ) {
+            uint256 epochId = uint256(queue.at(i));
             if (totalDepositShares(epochId) == 0) break; // stop at the oldest Pending epoch
             result += _convertToDepositShares(epochId, _claimableDepositRequest(epochId, owner), Math.Rounding.Floor);
+            unchecked {
+                ++i;
+            }
         }
         return result;
     }

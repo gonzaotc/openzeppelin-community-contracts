@@ -156,22 +156,32 @@ abstract contract ERC7540EpochRedeem is ERC7540 {
      * {_fulfillRedeem} is O(1) (it sets `totalAssets` for the entire epoch in a single write).
      */
     function _asyncMaxWithdraw(address owner) internal view virtual override returns (uint256 assets) {
+        DoubleEndedQueue.Bytes32Deque storage queue = _memberOf[owner];
         uint256 result = 0;
-        for (uint256 i = 0; i < _memberOf[owner].length(); ++i) {
-            uint256 epochId = uint256(_memberOf[owner].at(i));
+        uint256 length = queue.length();
+        for (uint256 i = 0; i < length; ) {
+            uint256 epochId = uint256(queue.at(i));
             if (totalRedeemAssets(epochId) == 0) break; // stop at the oldest Pending epoch
             result += _convertToRedeemAssets(epochId, _claimableRedeemRequest(epochId, owner), Math.Rounding.Floor);
+            unchecked {
+                ++i;
+            }
         }
         return result;
     }
 
     /// @dev Sums claimable shares across all fulfilled epochs the `owner` participates in. Same as {_asyncMaxWithdraw}.
     function _asyncMaxRedeem(address owner) internal view virtual override returns (uint256 shares) {
+        DoubleEndedQueue.Bytes32Deque storage queue = _memberOf[owner];
         uint256 result = 0;
-        for (uint256 i = 0; i < _memberOf[owner].length(); ++i) {
-            uint256 epochId = uint256(_memberOf[owner].at(i));
+        uint256 length = queue.length();
+        for (uint256 i = 0; i < length; ) {
+            uint256 epochId = uint256(queue.at(i));
             if (totalRedeemAssets(epochId) == 0) break; // stop at the oldest Pending epoch
             result += _claimableRedeemRequest(epochId, owner);
+            unchecked {
+                ++i;
+            }
         }
         return result;
     }
