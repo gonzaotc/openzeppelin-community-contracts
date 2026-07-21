@@ -98,14 +98,15 @@ abstract contract ERC7540AdminDeposit is ERC7540 {
         // When `assets` equals the controller's full claimable balance (including the case where both
         // sides are 0), the entire remaining `claimableShares` is returned and consumed. This drains any
         // residue left after a partial claim was rounded against the share side.
-        uint256 maxAssets = maxDeposit(controller);
-        uint256 maxShares = maxMint(controller);
+        PendingDeposit storage request = _deposits[controller];
+        uint256 maxAssets = request.claimableAssets;
+        uint256 maxShares = request.claimableShares;
         uint256 shares = assets == maxAssets
             ? maxShares
             : Math.mulDiv(assets, maxShares, maxAssets, Math.Rounding.Floor);
 
-        _deposits[controller].claimableAssets -= assets;
-        _deposits[controller].claimableShares -= shares;
+        request.claimableAssets -= assets;
+        request.claimableShares -= shares;
         return shares;
     }
 
@@ -114,14 +115,15 @@ abstract contract ERC7540AdminDeposit is ERC7540 {
         // When `shares` equals the controller's full claimable balance (including the case where both
         // sides are 0), the entire remaining `claimableAssets` is returned and consumed. This drains any
         // residue left after a partial claim was rounded against the asset side.
-        uint256 maxAssets = maxDeposit(controller);
-        uint256 maxShares = maxMint(controller);
+        PendingDeposit storage request = _deposits[controller];
+        uint256 maxAssets = request.claimableAssets;
+        uint256 maxShares = request.claimableShares;
         uint256 assets = shares == maxShares
             ? maxAssets
             : Math.mulDiv(shares, maxAssets, maxShares, Math.Rounding.Ceil);
 
-        _deposits[controller].claimableAssets -= assets;
-        _deposits[controller].claimableShares -= shares;
+        request.claimableAssets -= assets;
+        request.claimableShares -= shares;
         return assets;
     }
 
