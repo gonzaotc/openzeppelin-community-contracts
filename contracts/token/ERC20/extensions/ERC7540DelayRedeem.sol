@@ -88,8 +88,9 @@ abstract contract ERC7540DelayRedeem is ERC7540, IERC6372 {
         uint48 timepoint = clock() + redeemDelay(controller);
 
         if (shares > 0) {
-            uint256 latest = _redeems[controller].latest();
-            _redeems[controller].push(timepoint, (shares + latest).toUint208());
+            Checkpoints.Trace208 storage redeems = _redeems[controller];
+            uint256 latest = redeems.latest();
+            redeems.push(timepoint, (shares + latest).toUint208());
         }
 
         return super._requestRedeem(shares, controller, owner, timepoint);

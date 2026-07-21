@@ -88,8 +88,9 @@ abstract contract ERC7540DelayDeposit is ERC7540, IERC6372 {
         uint48 timepoint = clock() + depositDelay(controller);
 
         if (assets > 0) {
-            uint256 latest = _deposits[controller].latest();
-            _deposits[controller].push(timepoint, (assets + latest).toUint208());
+            Checkpoints.Trace208 storage deposits = _deposits[controller];
+            uint256 latest = deposits.latest();
+            deposits.push(timepoint, (assets + latest).toUint208());
         }
 
         return super._requestDeposit(assets, controller, owner, timepoint);
