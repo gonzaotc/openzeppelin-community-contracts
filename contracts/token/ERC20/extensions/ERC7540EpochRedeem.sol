@@ -308,24 +308,28 @@ abstract contract ERC7540EpochRedeem is ERC7540 {
 
         while (assets > 0) {
             uint256 epochId = uint256(_memberOf[controller].front());
-            if (totalRedeemAssets(epochId) == 0) break; // oldest queued epoch is still Pending
+            EpochRedeemMetadata storage details = _epochs[epochId];
+            uint256 totalAssets = details.totalAssets;
+            if (totalAssets == 0) break; // oldest queued epoch is still Pending
 
-            uint256 requestedShares = _pendingAvailableRedeemRequest(epochId, controller);
-            uint256 requested = _convertToRedeemAssets(epochId, requestedShares, Math.Rounding.Ceil);
+            uint256 totalShares = details.totalShares;
+            uint256 requestedShares = totalShares == 0 ? 0 : details.requests[controller];
+            uint256 requested = totalShares == 0
+                ? 0
+                : requestedShares.mulDiv(totalAssets, totalShares, Math.Rounding.Ceil);
             if (requested <= assets) _memberOf[controller].popFront();
 
             uint256 batchAssets = requested.min(assets);
             // Cap batchShares at requestedShares so a ceil-floor gap on the last asset of an
             // earlier epoch cannot consume more shares than the controller was entitled to
             // (prevents cross-epoch borrowing).
-            uint256 batchShares = _convertToRedeemShares(epochId, batchAssets, Math.Rounding.Floor).min(
-                requestedShares
-            );
+            uint256 batchShares = totalShares == 0
+                ? 0
+                : batchAssets.mulDiv(totalShares, totalAssets, Math.Rounding.Floor).min(requestedShares);
 
-            EpochRedeemMetadata storage details = _epochs[epochId];
             details.requests[controller] -= batchShares; // batchShares <= requestedShares via .min
-            details.totalAssets -= batchAssets; // batchAssets <= requested <= totalAssets (see invariants)
-            details.totalShares -= batchShares; // batchShares <= requestedShares <= totalShares (invariant)
+            details.totalAssets = totalAssets - batchAssets; // batchAssets <= requested <= totalAssets (see invariants)
+            details.totalShares = totalShares - batchShares; // batchShares <= requestedShares <= totalShares (invariant)
             assets -= batchAssets; // batchAssets <= assets (via .min)
             shares += batchShares;
         }
@@ -347,18 +351,22 @@ abstract contract ERC7540EpochRedeem is ERC7540 {
 
         while (shares > 0) {
             uint256 epochId = uint256(_memberOf[controller].front());
-            if (totalRedeemAssets(epochId) == 0) break; // oldest queued epoch is still Pending
+            EpochRedeemMetadata storage details = _epochs[epochId];
+            uint256 totalAssets = details.totalAssets;
+            if (totalAssets == 0) break; // oldest queued epoch is still Pending
 
-            uint256 requested = _pendingAvailableRedeemRequest(epochId, controller);
+            uint256 totalShares = details.totalShares;
+            uint256 requested = totalShares == 0 ? 0 : details.requests[controller];
             if (requested <= shares) _memberOf[controller].popFront();
 
             uint256 batchShares = requested.min(shares);
-            uint256 batchAssets = _convertToRedeemAssets(epochId, batchShares, Math.Rounding.Floor);
+            uint256 batchAssets = totalShares == 0
+                ? 0
+                : batchShares.mulDiv(totalAssets, totalShares, Math.Rounding.Floor);
 
-            EpochRedeemMetadata storage details = _epochs[epochId];
             details.requests[controller] -= batchShares; // batchShares <= requested via .min
-            details.totalShares -= batchShares; // batchShares <= details.totalShares (invariant: requests[c] <= totalShares)
-            details.totalAssets -= batchAssets; // batchAssets = floor(batchShares * A/S) <= details.totalAssets (since batchShares <= totalShares)
+            details.totalShares = totalShares - batchShares; // batchShares <= totalShares (invariant: requests[c] <= totalShares)
+            details.totalAssets = totalAssets - batchAssets; // batchAssets = floor(batchShares * A/S) <= totalAssets (since batchShares <= totalShares)
             shares -= batchShares; // batchShares <= shares (via .min)
             assets += batchAssets;
         }

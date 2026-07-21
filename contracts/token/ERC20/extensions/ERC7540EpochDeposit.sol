@@ -311,18 +311,22 @@ abstract contract ERC7540EpochDeposit is ERC7540 {
 
         while (assets > 0) {
             uint256 epochId = uint256(_memberOf[controller].front());
-            if (totalDepositShares(epochId) == 0) break; // oldest queued epoch is still Pending
+            EpochDepositMetadata storage details = _epochs[epochId];
+            uint256 totalShares = details.totalShares;
+            if (totalShares == 0) break; // oldest queued epoch is still Pending
 
-            uint256 requested = _pendingAvailableDepositRequest(epochId, controller);
+            uint256 totalAssets = details.totalAssets;
+            uint256 requested = totalAssets == 0 ? 0 : details.requests[controller];
             if (requested <= assets) _memberOf[controller].popFront();
 
             uint256 batchAssets = requested.min(assets);
-            uint256 batchShares = _convertToDepositShares(epochId, batchAssets, Math.Rounding.Floor);
+            uint256 batchShares = totalAssets == 0
+                ? 0
+                : batchAssets.mulDiv(totalShares, totalAssets, Math.Rounding.Floor);
 
-            EpochDepositMetadata storage details = _epochs[epochId];
             details.requests[controller] -= batchAssets; // batchAssets <= requested via .min
-            details.totalAssets -= batchAssets; // batchAssets <= details.totalAssets (invariant: requests[c] <= totalAssets)
-            details.totalShares -= batchShares; // batchShares = floor(batchAssets * S/A) <= details.totalShares (since batchAssets <= totalAssets)
+            details.totalAssets = totalAssets - batchAssets; // batchAssets <= totalAssets (invariant: requests[c] <= totalAssets)
+            details.totalShares = totalShares - batchShares; // batchShares <= totalShares (invariant)
             assets -= batchAssets; // batchAssets <= assets (via .min)
             shares += batchShares;
         }
@@ -344,24 +348,28 @@ abstract contract ERC7540EpochDeposit is ERC7540 {
 
         while (shares > 0) {
             uint256 epochId = uint256(_memberOf[controller].front());
-            if (totalDepositShares(epochId) == 0) break; // oldest queued epoch is still Pending
+            EpochDepositMetadata storage details = _epochs[epochId];
+            uint256 totalShares = details.totalShares;
+            if (totalShares == 0) break; // oldest queued epoch is still Pending
 
-            uint256 requestedAssets = _pendingAvailableDepositRequest(epochId, controller);
-            uint256 requested = _convertToDepositShares(epochId, requestedAssets, Math.Rounding.Ceil);
+            uint256 totalAssets = details.totalAssets;
+            uint256 requestedAssets = totalAssets == 0 ? 0 : details.requests[controller];
+            uint256 requested = totalAssets == 0
+                ? 0
+                : requestedAssets.mulDiv(totalShares, totalAssets, Math.Rounding.Ceil);
             if (requested <= shares) _memberOf[controller].popFront();
 
             uint256 batchShares = requested.min(shares);
             // Cap batchAssets at requestedAssets so a ceil-floor gap on the last share of an
             // earlier epoch cannot consume more assets than the controller was entitled to
             // (prevents cross-epoch borrowing).
-            uint256 batchAssets = _convertToDepositAssets(epochId, batchShares, Math.Rounding.Floor).min(
-                requestedAssets
-            );
+            uint256 batchAssets = totalAssets == 0
+                ? 0
+                : batchShares.mulDiv(totalAssets, totalShares, Math.Rounding.Floor).min(requestedAssets);
 
-            EpochDepositMetadata storage details = _epochs[epochId];
             details.requests[controller] -= batchAssets; // batchAssets <= requestedAssets via .min
-            details.totalAssets -= batchAssets; // batchAssets <= requestedAssets <= totalAssets (invariant)
-            details.totalShares -= batchShares; // batchShares <= requested = ceil(rA*S/A) <= S (see contract-level NOTE)
+            details.totalAssets = totalAssets - batchAssets; // batchAssets <= requestedAssets <= totalAssets (invariant)
+            details.totalShares = totalShares - batchShares; // batchShares <= requested = ceil(rA*S/A) <= S (see contract-level NOTE)
             shares -= batchShares; // batchShares <= shares (via .min)
             assets += batchAssets;
         }
