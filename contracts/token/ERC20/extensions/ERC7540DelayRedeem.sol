@@ -98,14 +98,30 @@ abstract contract ERC7540DelayRedeem is ERC7540, IERC6372 {
 
     /// @dev Consumes `assets` from claimable redeems, returns proportional shares (rounded up).
     function _consumeClaimableWithdraw(uint256 assets, address controller) internal virtual override returns (uint256) {
-        uint256 shares = Math.mulDiv(assets, maxRedeem(controller), maxWithdraw(controller), Math.Rounding.Ceil);
+        uint256 claimableShares = _readyRedeemAt(controller, clock());
+        uint256 shares = claimableShares == 0
+            ? 0
+            : Math.mulDiv(
+                assets,
+                claimableShares,
+                _convertToAssets(claimableShares, Math.Rounding.Floor),
+                Math.Rounding.Ceil
+            );
         _claimedRedeems[controller] += shares;
         return shares;
     }
 
     /// @dev Consumes `shares` from claimable redeems, returns proportional assets (rounded down).
     function _consumeClaimableRedeem(uint256 shares, address controller) internal virtual override returns (uint256) {
-        uint256 assets = Math.mulDiv(shares, maxWithdraw(controller), maxRedeem(controller), Math.Rounding.Floor);
+        uint256 claimableShares = _readyRedeemAt(controller, clock());
+        uint256 assets = claimableShares == 0
+            ? 0
+            : Math.mulDiv(
+                shares,
+                _convertToAssets(claimableShares, Math.Rounding.Floor),
+                claimableShares,
+                Math.Rounding.Floor
+            );
         _claimedRedeems[controller] += shares;
         return assets;
     }
