@@ -10,15 +10,19 @@ const ERC1271_MAGIC_VALUE = '0x1626ba7e';
 const ROLE = 42n;
 const OTHER_ROLE = 17n;
 
-// Wraps a signer so that its produced signatures are prefixed with the signer's address, matching the
+// Wraps a signer so that its produced signatures are prefixed with the member's address, matching the
 // `[20-byte signer address][inner signature]` layout expected by SignerRole. The ERC7739Signer helper
 // then appends the ERC-7739 envelope (for typed data) on top of this inner signature.
+// `member` defaults to the signer itself, and can be set to an ERC-1271 contract whose signatures are
+// produced by `signer` (e.g. a smart contract wallet owned by it).
 class RoleMemberSigner extends ethers.AbstractSigner {
   #signer;
+  #member;
 
-  constructor(signer) {
+  constructor(signer, member = signer) {
     super(signer.provider);
     this.#signer = signer;
+    this.#member = member;
   }
 
   static from(...args) {
@@ -30,17 +34,17 @@ class RoleMemberSigner extends ethers.AbstractSigner {
   }
 
   getAddress() {
-    return this.#signer.getAddress();
+    return ethers.resolveAddress(this.#member);
   }
 
   connect(provider) {
-    return new RoleMemberSigner(this.#signer.connect(provider));
+    return new RoleMemberSigner(this.#signer.connect(provider), this.#member);
   }
 
   // Note: because this is used within an ERC-7739 context, only signTypedData is needed.
   // ERC-191 are wrapped in EIP-712 structs, and signed as such following ERC-7739.
   signTypedData(domain, types, value) {
-    return Promise.all([this.#signer.getAddress(), this.#signer.signTypedData(domain, types, value)]).then(
+    return Promise.all([ethers.resolveAddress(this.#member), this.#signer.signTypedData(domain, types, value)]).then(
       ethers.concat,
     );
   }
@@ -55,7 +59,7 @@ async function fixture() {
 
   const factory = await ethers.deployContract('$RoleAccountFactory');
 
-  // Deploy the role account for ROLE and grant the role to `member`.
+  // Deploy the role account for ROLE.
   const account = await factory
     .getRoleAccount(manager, ROLE)
     .then(predicted => ethers.getContractAt('RoleAccount', predicted));
@@ -74,7 +78,7 @@ describe('RoleAccountFactory', function () {
       this.template = this.account.attach(ethers.getCreateAddress({ from: this.factory.target, nonce: 1n }));
     });
 
-    it('deploys the role account at the predicted deterministic address', async function () {
+    it('deploys the template', async function () {
       await expect(ethers.provider.getCode(this.template)).to.eventually.not.equal('0x');
     });
 
@@ -123,37 +127,45 @@ describe('RoleAccountFactory', function () {
       this.mock = this.account;
       this.signer = RoleMemberSigner.from(walletMember);
       await this.manager.connect(this.admin).grantRole(ROLE, walletMember, 0n);
+
+      const domain = await getDomain(this.account);
+      const text = 'authorize me';
+      this.validateMessage = signer =>
+        this.account.isValidSignature(ethers.hashMessage(text), ERC7739Signer.from(signer, domain).signMessage(text));
     });
 
     shouldBehaveLikeERC1271({ erc7739: true });
 
+    it('accepts a signature from a member', async function () {
+      await expect(this.validateMessage(RoleMemberSigner.from(this.member))).to.eventually.equal(ERC1271_MAGIC_VALUE);
+    });
+
+    it('accepts a signature from an ERC-1271 contract member', async function () {
+      const owner = ethers.Wallet.createRandom();
+      const wallet = await ethers.deployContract('ERC1271WalletMock', [owner]);
+      await this.manager.connect(this.admin).grantRole(ROLE, wallet, 0n);
+
+      await expect(this.validateMessage(RoleMemberSigner.from(owner, wallet))).to.eventually.equal(ERC1271_MAGIC_VALUE);
+    });
+
+    it('rejects a signature from a member with an execution delay', async function () {
+      await expect(this.validateMessage(RoleMemberSigner.from(this.delayed))).to.eventually.not.equal(
+        ERC1271_MAGIC_VALUE,
+      );
+    });
+
     it('rejects a signature from a non-member', async function () {
-      const domain = await getDomain(this.account);
-      const text = 'authorize me';
+      await expect(this.validateMessage(RoleMemberSigner.from(this.other))).to.eventually.not.equal(
+        ERC1271_MAGIC_VALUE,
+      );
+    });
 
-      // by valid signer
-      await expect(
-        this.account.isValidSignature(
-          ethers.hashMessage(text),
-          ERC7739Signer.from(RoleMemberSigner.from(this.member), domain).signMessage(text),
-        ),
-      ).to.eventually.equal(ERC1271_MAGIC_VALUE);
+    it('rejects a signature from a revoked member', async function () {
+      const signer = RoleMemberSigner.from(this.member);
+      await expect(this.validateMessage(signer)).to.eventually.equal(ERC1271_MAGIC_VALUE);
 
-      // by a signer with delay
-      await expect(
-        this.account.isValidSignature(
-          ethers.hashMessage(text),
-          ERC7739Signer.from(RoleMemberSigner.from(this.delayed), domain).signMessage(text),
-        ),
-      ).to.eventually.not.equal(ERC1271_MAGIC_VALUE);
-
-      // by other signer
-      await expect(
-        this.account.isValidSignature(
-          ethers.hashMessage(text),
-          ERC7739Signer.from(RoleMemberSigner.from(this.other), domain).signMessage(text),
-        ),
-      ).to.eventually.not.equal(ERC1271_MAGIC_VALUE);
+      await this.manager.connect(this.admin).revokeRole(ROLE, this.member);
+      await expect(this.validateMessage(signer)).to.eventually.not.equal(ERC1271_MAGIC_VALUE);
     });
   });
 
@@ -181,6 +193,23 @@ describe('RoleAccountFactory', function () {
       await expect(this.account.connect(this.other).execute(this.mode, this.data))
         .to.be.revertedWithCustomError(this.account, 'AccountUnauthorized')
         .withArgs(this.other.address);
+    });
+
+    it('authorizes execution triggered by a newly granted member', async function () {
+      await this.manager.connect(this.admin).grantRole(ROLE, this.other, 0n);
+
+      await expect(this.account.connect(this.other).execute(this.mode, this.data)).to.emit(
+        this.target,
+        'MockFunctionCalled',
+      );
+    });
+
+    it('rejects execution triggered by a revoked member', async function () {
+      await this.manager.connect(this.admin).revokeRole(ROLE, this.member);
+
+      await expect(this.account.connect(this.member).execute(this.mode, this.data))
+        .to.be.revertedWithCustomError(this.account, 'AccountUnauthorized')
+        .withArgs(this.member.address);
     });
   });
 });
